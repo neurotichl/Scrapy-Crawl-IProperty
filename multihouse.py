@@ -6,10 +6,14 @@ from datetime import datetime
 import pandas as pd
 import folium
 import re
+import os
+
+global timestamp
+timestamp = datetime.today().date().isoformat().replace('-','')
 
 def facilities(x):
 	try:
-		return x.replace('Bedroom(s)','Bed').replace('Bathroom(s)','Bath').replace('Parking Bay(s)','Park')
+		return x.replace('Bedroom(s)','Room').replace('Bathroom(s)','Bath').replace('Parking Bay(s)','Park')
 	except:
 		pass
 
@@ -26,7 +30,18 @@ link      : {5}
 	"""
 	return folium.IFrame(html= html.format(index+1,name,price,facilities,size,link), width=400, height=100)
 
-def plot_map(df,html_name):
+def plot_map(df,house_conf):
+
+	def getHTML(house_conf):
+		global timestamp
+		html_name = '{0}/{1}_{2}'.format(house_conf['Map']['folder'],\
+										  house_conf['Map']['filename'],\
+										  timestamp)
+		lat_lon = house_conf['MyHouse'] if 'MyHouse' in house_conf.keys() else None
+		return html_name, lat_lon
+
+	html_name, lat_lon = getHTML(house_conf)
+
 	color_group = {'High':'red','Low':'blue'}
 
 	m = folium.Map(location=[3.139, 101.6869], zoom_start = 10)
@@ -36,26 +51,41 @@ def plot_map(df,html_name):
 		popup = folium.Popup(iframe, max_width=2650)
 		folium.Marker([row['lat'], row['lon']], popup=popup, icon=folium.Icon(color=color_group[row['prize_range']])).add_to(m)
 
-	folium.Marker([3.1173752,101.763286],popup='Tat Yau Home', icon=folium.Icon(color='green')).add_to(m)
+	if lat_lon: folium.Marker([float(lat_lon['lat']),float(lat_lon['lng'])],\
+								popup='MyHome', icon=folium.Icon(color='green')).add_to(m)
 	m.save('{}.html'.format(html_name))
 
 def process_result():
-	df1 = pd.read_csv('house_cheap.csv')
-	df2 = pd.read_csv('house_exp.csv')
+	global timestamp
+	df1 = pd.read_csv('data/house_cheap.csv')
+	df2 = pd.read_csv('data/house_exp.csv')
+	os.rename('data/house_cheap.csv','data/house_cheap_{}.csv'.format(timestamp))
+	os.rename('data/house_exp.csv','data/house_exp_{}.csv'.format(timestamp))
 	df = df1.append(df2, ignore_index=True)
 	df['facilities'] = df['amenities'].map(facilities)
 	df = df[df['lat'].notnull()]
 	return df.reset_index(drop=True).reset_index()
 
-############################################################################################################
-if __name__ == '__main__':
+def get_conf(config_path):
 	house_conf = ConfigParser()
-	house_conf.read('house_conf.ini')
+	house_conf.read(config_path)
+	return house_conf
 
+def crawling(house_conf):
 	process = CrawlerProcess(get_project_settings())
 	process.crawl(HouseSpider,**dict(house_conf['Low']))
 	process.crawl(HouseSpiderExp,**dict(house_conf['High']))
 	process.start()
 
+def process_plot(house_conf):
 	df = process_result()
-	plot_map(df,'{0}_{1}.html'.format(house_conf['Map']['file'],datetime.today().date().isoformat().replace('-','')))
+	plot_map(df,house_conf)
+
+def crawl_plot(config_path):
+	house_conf = get_conf(config_path)
+	crawling(house_conf)
+	process_plot(house_conf)
+
+############################################################################################################
+if __name__ == '__main__':
+	crawl_plot('house_conf.ini')
